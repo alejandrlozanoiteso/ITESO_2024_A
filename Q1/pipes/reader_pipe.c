@@ -16,7 +16,7 @@ int main(int argc, char * argv[]) {
 
     for (;;) {
         int ret = read(fifo, buff, MAX_LEN);
-        printf("Received from Parent: %s", buff);
+        printf("Received from Writer: %s", buff);
         sleep(5);
     }
 
