@@ -11,20 +11,20 @@
 #include <linux/gpio.h>
 
 
-#define LEN 20
+#define LEN 2
 
 int main(int argc, char * argv[]) {
 
     int  ret = 0;
     int  fd;
-    uint32_t mode = SPI_MODE_3;
+    uint32_t mode = SPI_MODE_1;
     uint8_t  bits = 8;
     uint32_t speed = 1000000;
     uint16_t delay = 0;
-    uint8_t tx[LEN], rx[LEN];
+    uint8_t tx[LEN] = {0x8F, 0x00}; 
+    uint8_t rx[LEN];
 
-    strcpy(tx, "Prueba esta!");
-
+    
     fd = open("/dev/spidev1.0", O_RDWR);
 
 
@@ -50,6 +50,8 @@ int main(int argc, char * argv[]) {
 	ret = ioctl(fd, SPI_IOC_MESSAGE(1), &tr);
 	if (ret < 1)
 		perror("can't send spi message");
+
+    printf("WHO_AM_I: 0x%x\n", rx[1]);
 
     return 0;
 }
