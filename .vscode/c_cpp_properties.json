@@ -1,0 +1,18 @@
+{
+    "configurations": [
+        {
+            "name": "Linux",
+            "includePath": [
+                "${workspaceFolder}/**",
+                "/opt/fsl-imx-xwayland/5.15-kirkstone/sysroots/armv8a-poky-linux/",
+                "/opt/fsl-imx-xwayland/5.15-kirkstone/sysroots/armv8a-poky-linux/usr/include"
+            ],
+            "defines": [],
+            "compilerPath": "/usr/bin/gcc",
+            "cStandard": "c17",
+            "cppStandard": "gnu++14",
+            "intelliSenseMode": "linux-gcc-x64"
+        }
+    ],
+    "version": 4
+}
