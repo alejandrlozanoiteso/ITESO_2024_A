@@ -14,41 +14,55 @@ int main(int argc, char * argv[]) {
     snd_pcm_hw_params_t * hw_params; 
 
     /*Open Sound Card*/
-    int ret = 
+    int ret = snd_pcm_open(&handle, "hw:0", SND_PCM_STREAM_CAPTURE, 0);
 
-    /*Allocate configuration Space*/
-    
-    /*Link configuration space to handle*/
-    
+    /*Configure Format, Rate, Channels*/
+    snd_pcm_hw_params_alloca(&hw_params);
+    ret = snd_pcm_hw_params_any(handle, hw_params);
 
-    /*Set access mode interleaved/non interleaved*/
 
-    /*Set format*/
-    
-    /*set channels*/
-    
-    /*set Rate*/
-    
+    if( (ret = snd_pcm_hw_params_set_access(handle, hw_params, SND_PCM_ACCESS_RW_INTERLEAVED)) < 0) {
+        printf("ERROR! Cannot set interleaved mode\n");
+        return ret;
+    }
 
-    /*Set hw params*/    
+    snd_pcm_format_t format = SND_PCM_FORMAT_S32_LE;
 
-    /*Allocate buffer in application, this buffer contains the audio*/
+    if( (ret = snd_pcm_hw_params_set_format(handle, hw_params, format)) < 0) {
+        printf("ERROR! Cannot set format\n");
+        return ret;
+    }
+
+    int channels = CHANNELS;
+
+    if( (ret = snd_pcm_hw_params_set_channels(handle, hw_params, channels)) < 0) {
+        printf("ERROR! Cannot set Channels\n");
+        return ret;
+    }
+
+    int rate = 48000;
+    if( (ret = snd_pcm_hw_params_set_rate_near(handle, hw_params, &rate, 0)) < 0) {
+        printf("ERROR! Cannot set Rate %d\n", rate);
+        return ret;
+    }
+
+    
+    if( (ret = snd_pcm_hw_params(handle, hw_params)) < 0) {
+        printf("ERROR! Cannot set hw params\n");
+        return ret;
+    }
+
     int size = CHANNELS * FRAMES * sizeof(uint32_t);
     uint32_t * buffer = (uint32_t * )malloc(size);
 
     for (;;) {
 
-        /*Read from card*/
-        
-        /*Save buffer of data to file*/
+        snd_pcm_sframes_t frames = snd_pcm_readi(handle, buffer, FRAMES);
         int n_bytes = fwrite(buffer, 1, size, rec_file);
-        /*flush content*/
         fflush(rec_file);
     }
 
-    /*Close audio card*/
-    
-    /*Close file*/
+    ret = snd_pcm_close(handle);
     fclose(rec_file);
 
     return ret;
