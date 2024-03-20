@@ -75,6 +75,12 @@ int main(int argc, char **argv)
     const char *modelFileName = argv[1];
     const char *labelFile = argv[2];
 
+    int size = CHANNELS * FRAMES * sizeof(int16_t);
+    int16_t * buffer = (int16_t * )malloc(size);
+    memset(buffer, 0, size);
+
+ #ifdef MICS   
+
     //Configure Mics
     snd_pcm_t * handle;
     snd_pcm_hw_params_t * hw_params; 
@@ -118,30 +124,34 @@ int main(int argc, char **argv)
         return ret;
     }
 
-    int size = CHANNELS * FRAMES * sizeof(int16_t);
-    int16_t * buffer = (int16_t * )malloc(size);
-
     //Read from Mics
     snd_pcm_sframes_t frames = snd_pcm_readi(handle, buffer, FRAMES);
+
+
+#else
+    FILE * rec_file = fopen(argv[3], "r");
+    fseek(rec_file, 0L, SEEK_END);
+    int file_size = ftell(rec_file);
+    fseek(rec_file, 0L, SEEK_SET);
+
+    int n_bytes = 0;
+    uint8_t * buff = (uint8_t *)buffer;
+    buff += (size - file_size);
+
+    while (!feof(rec_file)) {
+        n_bytes = fread(buff, 1, 512, rec_file);
+        buff += n_bytes;
+    }
+#endif
+
     // Generate complex input signal
     for (int i = 0; i < n; i++) {
         audio_input[i][0] = buffer[i];
         audio_input[i][1] = 0;
     }
-
     //Calculate Spectrogram
     float * spectro = stft(audio_input, n, window_size, hop_size);
     int num_frames = (n - window_size) / hop_size + 1;
-
-    /*
-    int sample = 0;
-    for (int i = 0;  i < num_frames;  i++) {
-        for  (int j = 0; j <= window_size/2; j++) {
-            std::cout << "frame: " << i << " Sample: " << j << " Value: " << spectro[sample] << std::endl;
-            sample++;
-        }
-    }
-    */
 
     // Load Model
     std::unique_ptr<tflite::FlatBufferModel> model = tflite::FlatBufferModel::BuildFromFile(modelFileName);
@@ -185,8 +195,9 @@ int main(int argc, char **argv)
     std::vector<std::pair<float, int>> top_results;
     float threshold = 0.01f;
 
+    std::cout << "Output Type " << interpreter->tensor(output)->type << std::endl;
     switch (interpreter->tensor(output)->type) {
-    case kTfLiteInt32:
+    case kTfLiteFloat32:
         tflite::label_image::get_top_n<float>(interpreter->typed_output_tensor<float>(0), output_size, 1, threshold, &top_results, kTfLiteFloat32);
         break;
     case kTfLiteUInt8:
