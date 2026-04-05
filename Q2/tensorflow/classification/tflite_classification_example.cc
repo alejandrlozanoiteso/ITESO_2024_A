@@ -8,6 +8,19 @@
 #include <tensorflow/lite/examples/label_image/get_top_n.h>
 #include <tensorflow/lite/model.h>
 
+#define FILE    1
+#define CAMERA  2
+#define VLC     3
+
+#define TEST  CAMERA
+
+#define HEIGHT 480
+#define WIDTH   640
+#define FPS 30
+
+
+/*****************************************************Load labels from File *************************************/
+
 std::vector<std::string> load_labels(std::string labels_file)
 {
     std::ifstream file(labels_file.c_str());
@@ -30,6 +43,16 @@ std::vector<std::string> load_labels(std::string labels_file)
 
 int main(int argc, char **argv)
 {
+
+#if TEST==CAMERA
+    cv::VideoCapture cam(0);
+        /*Configura camara */
+        cam.set(cv::CAP_PROP_FRAME_HEIGHT, HEIGHT);
+        cam.set(cv::CAP_PROP_FRAME_WIDTH, WIDTH);
+        cam.set(cv::CAP_PROP_FPS, FPS);
+#elif TEST==VLC
+        cv::VideoCapture cam("rtsp://192.168.100.14:8554/camera", cv::CAP_FFMPEG);
+#endif
 
     // Get Model label and input image
     if (argc != 4)
@@ -66,70 +89,101 @@ int main(int argc, char **argv)
 
     // Configure the interpreter
     interpreter->SetAllowFp16PrecisionForFp32(true);
-    interpreter->SetNumThreads(1);
+    interpreter->SetNumThreads(8);
+
+    /**********************************************Input Tensors *******************************************/
+    std::cout << "/**********************************************Input Tensors *******************************************/" << std::endl;
     // Get Input Tensor Dimensions
+    std::cout << "The model Input has " << interpreter->inputs().size() << " input tensors" << std::endl;  
+    /*Get first input */
     int input = interpreter->inputs()[0];
+    std::cout << "The first input tensor has " << interpreter->tensor(input)->dims->size << " dimensions" << std::endl;
+    std::cout << "Type of tensor " << interpreter->tensor(input)->type << std::endl;
+    std::cout << "Size of tensor is " << interpreter->tensor(input)->bytes << std::endl;
+
+    int dimenssions  = interpreter->tensor(input)->dims->size;
+    for(int dim = 0; dim < dimenssions; dim++ )
+        std::cout << "Dimenssion " << dim << " is "  << interpreter->tensor(input)->dims->data[dim] << " size " << std::endl;
+
+    /**********************************************Output Tensors *******************************************/
+    std::cout << "/**********************************************Output Tensors *******************************************/" << std::endl;
+    // Get Output Tensor Dimensions
+    std::cout << "The model Output has " << interpreter->outputs().size() << "  output tensors" << std::endl;  
+    /*Get first input */
+    int output = interpreter->outputs()[0];
+    std::cout << "The first output tensor has " << interpreter->tensor(output)->dims->size << " dimensions" << std::endl;
+    std::cout << "Type of tensor " << interpreter->tensor(output)->type << std::endl;
+    std::cout << "Size of tensor is " << interpreter->tensor(output)->bytes << std::endl;
+
+    dimenssions  = interpreter->tensor(output)->dims->size;
+    for(int dim = 0; dim < dimenssions; dim++ )
+        std::cout << "Dimenssion " << dim << " is "  << interpreter->tensor(output)->dims->data[dim] << " size " << std::endl;    
+    
+    /********************************************** Get input data and copy to tensor *******************************************/
+    auto channels = interpreter->tensor(input)->dims->data[3];
     auto height = interpreter->tensor(input)->dims->data[1];
     auto width = interpreter->tensor(input)->dims->data[2];
-    auto channels = interpreter->tensor(input)->dims->data[3];
+
+    std::cout << "channels " << channels << std::endl;
+    std::cout << "height " << height << std::endl;
+    std::cout << "width " << width << std::endl;
+
     // Load Input Image
     cv::Mat image;
+
+#if TEST==FILE
     auto frame = cv::imread(imageFile);
-    if (frame.empty())
-    {
-        fprintf(stderr, "Failed to load iamge\n");
-        exit(-1);
-    }
+#endif
 
-    // Copy image to input tensor
-    cv::resize(frame, image, cv::Size(width, height), cv::INTER_NEAREST);
-    memcpy(interpreter->typed_input_tensor<unsigned char>(0), image.data, image.total() * image.elemSize());
+    for(;;) {
 
-    // Inference
-    std::chrono::steady_clock::time_point start, end;
-    start = std::chrono::steady_clock::now();
-    interpreter->Invoke();
-    end = std::chrono::steady_clock::now();
-    auto inference_time = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+#if TEST != FILE
+        cv::Mat frame;
+        cam >> frame;
+#endif
+        if (frame.empty())
+        {
+            fprintf(stderr, "Failed to load iamge\n");
+            exit(-1);
+        }
+    
+        /*Resize input */
+        cv::resize(frame, image, cv::Size(width, height), cv::INTER_NEAREST);
+        cv::Mat imageRGB;
+        cv::cvtColor(image, imageRGB, cv::COLOR_BGR2RGB);
+        memcpy(interpreter->typed_input_tensor<unsigned char>(0), imageRGB.data, imageRGB.total() * imageRGB.elemSize());
+    
+        /********************************************** Execute Inference *******************************************/
+        interpreter->Invoke();
+       
+        /********************************************** Get Output *******************************************/
+        TfLiteIntArray *output_dims = interpreter->tensor(output)->dims;
+        auto output_size = output_dims->data[output_dims->size - 1];
+        std::cout << "Output Size " << output_size << std::endl;
 
-    // Get Output
-    int output = interpreter->outputs()[0];
-    TfLiteIntArray *output_dims = interpreter->tensor(output)->dims;
-    auto output_size = output_dims->data[output_dims->size - 1];
-    std::cout << "Output Size " << output_size << std::endl;
-    std::vector<std::pair<float, int>> top_results;
-    float threshold = 0.01f;
-
-    switch (interpreter->tensor(output)->type)
-    {
-    case kTfLiteInt32:
-        tflite::label_image::get_top_n<float>(interpreter->typed_output_tensor<float>(0), output_size, 1, threshold, &top_results, kTfLiteFloat32);
-        break;
-    case kTfLiteUInt8:
+        /*Get results from priority queue */
+        std::vector<std::pair<float, int>> top_results;
+        float threshold = 0.01f;
         tflite::label_image::get_top_n<uint8_t>(interpreter->typed_output_tensor<uint8_t>(0), output_size, 1, threshold, &top_results, kTfLiteUInt8);
-        break;
-    default:
-        fprintf(stderr, "cannot handle output type\n");
-        exit(-1);
+
+        /* Load Labels */
+        auto labels = load_labels(labelFile);
+    
+        /* Print labels with confidence in input image */
+        for (const auto &result : top_results)
+        {
+            const float confidence = result.first;
+            const int index = result.second;
+            std::string output_txt = "Label :" + labels[index] + " Confidence : " + std::to_string(confidence);
+            cv::putText(frame, output_txt, cv::Point(10, 60), cv::FONT_HERSHEY_SIMPLEX, 0.8, cv::Scalar(0, 0, 255), 2);
+            std::cout << output_txt << std::endl;
+        }
+    
+        /*Display image*/
+        cv::imshow("Output", frame);
+        cv::waitKey(1);
     }
-    // Print inference ms in input image
-    cv::putText(frame, "Infernce Time in ms: " + std::to_string(inference_time), cv::Point(10, 30), cv::FONT_HERSHEY_SIMPLEX, 0.8, cv::Scalar(0, 0, 255), 2);
 
-    // Load Labels
-    auto labels = load_labels(labelFile);
-
-    // Print labels with confidence in input image
-    for (const auto &result : top_results)
-    {
-        const float confidence = result.first;
-        const int index = result.second;
-        std::string output_txt = "Label :" + labels[index] + " Confidence : " + std::to_string(confidence);
-        cv::putText(frame, output_txt, cv::Point(10, 60), cv::FONT_HERSHEY_SIMPLEX, 0.8, cv::Scalar(0, 0, 255), 2);
-    }
-
-    // Display image
-    cv::imshow("Output", frame);
-    cv::waitKey(0);
 
     return 0;
 }

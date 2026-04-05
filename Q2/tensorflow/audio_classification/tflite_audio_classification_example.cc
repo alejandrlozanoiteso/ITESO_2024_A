@@ -1,8 +1,9 @@
 #include <fstream>
 #include <string>
 #include <vector>
-#include <opencv2/opencv.hpp>
+#include <iostream>
 #include <tensorflow/lite/interpreter.h>
+#include <tensorflow/lite/interpreter_builder.h>
 #include <tensorflow/lite/kernels/register.h>
 #include <tensorflow/lite/string_util.h>
 #include <tensorflow/lite/examples/label_image/get_top_n.h>
@@ -11,9 +12,10 @@
 #include "fftw3.h"
 
 #define CHANNELS    1
-#define TIME_S      4
+#define TIME_S      2
 #define RATE        16000
 #define FRAMES      (TIME_S * RATE)
+#define MICS    1
 
 
 const double pi = 3.14159265358979323846;
@@ -33,13 +35,13 @@ float * stft(fftw_complex *input, int n, int window_size, int hop_size) {
             window[j][0] = input[offset + j][0] * 0.5 * (1 - cos(2 * pi * j / (window_size - 1)));
             window[j][1] = 0;
         }
+
         fftw_execute(plan);
         for (int j = 0; j <= window_size/2; j++) {
-            sample++;
             spectro[sample] = sqrt(window[j][0] * window[j][0] + window[j][1] *  window[j][1]);
-            
+            sample++;      
         }
-        std::cout << std::endl;
+
     }
 
     fftw_destroy_plan(plan);
@@ -67,7 +69,7 @@ std::vector<std::string> load_labels(std::string labels_file)
 int main(int argc, char **argv)
 {
 
-    const int n = 64000;
+    const int n = 32000;
     const int window_size = 512;
     const int hop_size = 128;
     fftw_complex * audio_input = (fftw_complex *) fftw_malloc(sizeof(fftw_complex) * n);
@@ -125,30 +127,34 @@ int main(int argc, char **argv)
     }
 
     //Read from Mics
+    printf("Speak Now!!!\n");
     snd_pcm_sframes_t frames = snd_pcm_readi(handle, buffer, FRAMES);
 
 
 #else
     FILE * rec_file = fopen(argv[3], "r");
+    printf("Opening %s\n", argv[3]);
     fseek(rec_file, 0L, SEEK_END);
     int file_size = ftell(rec_file);
-    fseek(rec_file, 0L, SEEK_SET);
+    fseek(rec_file, 44L, SEEK_SET);
 
     int n_bytes = 0;
     uint8_t * buff = (uint8_t *)buffer;
-    buff += (size - file_size);
 
+    printf("size %d file_size %d\n", size, file_size);
+    printf("Reading file\n");
     while (!feof(rec_file)) {
-        n_bytes = fread(buff, 1, 512, rec_file);
+        n_bytes = fread(buff, 1, 1000, rec_file);
         buff += n_bytes;
     }
 #endif
 
     // Generate complex input signal
     for (int i = 0; i < n; i++) {
-        audio_input[i][0] = buffer[i];
-        audio_input[i][1] = 0;
+        audio_input[i][0] = ((float)buffer[i])/32768.0;
+        audio_input[i][1] = 0.0;
     }
+
     //Calculate Spectrogram
     float * spectro = stft(audio_input, n, window_size, hop_size);
     int num_frames = (n - window_size) / hop_size + 1;
@@ -176,24 +182,49 @@ int main(int argc, char **argv)
     // Configure the interpreter
     interpreter->SetAllowFp16PrecisionForFp32(true);
     interpreter->SetNumThreads(1);
-    // Get Input Tensor Dimensions
-    int input = interpreter->inputs()[0];
-    auto x = interpreter->tensor(input)->dims->data[1];
-    auto y = interpreter->tensor(input)->dims->data[2];
-    std::cout << "Input Dimensions : " << x << "," << y << std::endl;
 
+
+    /**********************************************Input Tensors *******************************************/
+    std::cout << "/**********************************************Input Tensors *******************************************/" << std::endl;
+    // Get Input Tensor Dimensions
+    std::cout << "The model Input has " << interpreter->inputs().size() << " input tensors" << std::endl;  
+    /*Get first input */
+    int input = interpreter->inputs()[0];
+    std::cout << "The first input tensor has " << interpreter->tensor(input)->dims->size << " dimensions" << std::endl;
+    std::cout << "Type of tensor " << interpreter->tensor(input)->type << std::endl;
+    std::cout << "Size of tensor is " << interpreter->tensor(input)->bytes << std::endl;
+
+    int dimenssions  = interpreter->tensor(input)->dims->size;
+    for(int dim = 0; dim < dimenssions; dim++ )
+        std::cout << "Dimenssion " << dim << " is "  << interpreter->tensor(input)->dims->data[dim] << " size " << std::endl;
+
+    /**********************************************Output Tensors *******************************************/
+    std::cout << "/**********************************************Output Tensors *******************************************/" << std::endl;
+    // Get Output Tensor Dimensions
+    std::cout << "The model Output has " << interpreter->outputs().size() << "  output tensors" << std::endl;  
+    /*Get first input */
+    int output = interpreter->outputs()[0];
+    std::cout << "The first output tensor has " << interpreter->tensor(output)->dims->size << " dimensions" << std::endl;
+    std::cout << "Type of tensor " << interpreter->tensor(output)->type << std::endl;
+    std::cout << "Size of tensor is " << interpreter->tensor(output)->bytes << std::endl;
+
+    auto output_dims = interpreter->tensor(output)->dims;
+    dimenssions  = output_dims->size;
+    for(int dim = 0; dim < dimenssions; dim++ )
+        std::cout << "Dimenssion " << dim << " is "  << output_dims->data[dim] << " size " << std::endl;    
+    
+   
     //Copy Data
     memcpy(interpreter->typed_input_tensor<float>(0), spectro, sizeof(float)* (window_size/2 + 1) * num_frames );
     // Inference
     interpreter->Invoke();
+ 
 
-    // Get Output
-    int output = interpreter->outputs()[0];
-    TfLiteIntArray *output_dims = interpreter->tensor(output)->dims;
-    auto output_size = output_dims->data[output_dims->size - 1];
-    std::cout << "Output Size " << output_size << std::endl;
     std::vector<std::pair<float, int>> top_results;
     float threshold = 0.01f;
+
+    /*Size of last dimenssion */
+    auto output_size = output_dims->data[output_dims->size - 1];
 
     std::cout << "Output Type " << interpreter->tensor(output)->type << std::endl;
     switch (interpreter->tensor(output)->type) {
