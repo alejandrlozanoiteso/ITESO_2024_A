@@ -182,49 +182,24 @@ int main(int argc, char **argv)
     // Configure the interpreter
     interpreter->SetAllowFp16PrecisionForFp32(true);
     interpreter->SetNumThreads(1);
-
-
-    /**********************************************Input Tensors *******************************************/
-    std::cout << "/**********************************************Input Tensors *******************************************/" << std::endl;
     // Get Input Tensor Dimensions
-    std::cout << "The model Input has " << interpreter->inputs().size() << " input tensors" << std::endl;  
-    /*Get first input */
     int input = interpreter->inputs()[0];
-    std::cout << "The first input tensor has " << interpreter->tensor(input)->dims->size << " dimensions" << std::endl;
-    std::cout << "Type of tensor " << interpreter->tensor(input)->type << std::endl;
-    std::cout << "Size of tensor is " << interpreter->tensor(input)->bytes << std::endl;
+    auto x = interpreter->tensor(input)->dims->data[1];
+    auto y = interpreter->tensor(input)->dims->data[2];
+    std::cout << "Input Dimensions : " << x << "," << y << std::endl;
 
-    int dimenssions  = interpreter->tensor(input)->dims->size;
-    for(int dim = 0; dim < dimenssions; dim++ )
-        std::cout << "Dimenssion " << dim << " is "  << interpreter->tensor(input)->dims->data[dim] << " size " << std::endl;
-
-    /**********************************************Output Tensors *******************************************/
-    std::cout << "/**********************************************Output Tensors *******************************************/" << std::endl;
-    // Get Output Tensor Dimensions
-    std::cout << "The model Output has " << interpreter->outputs().size() << "  output tensors" << std::endl;  
-    /*Get first input */
-    int output = interpreter->outputs()[0];
-    std::cout << "The first output tensor has " << interpreter->tensor(output)->dims->size << " dimensions" << std::endl;
-    std::cout << "Type of tensor " << interpreter->tensor(output)->type << std::endl;
-    std::cout << "Size of tensor is " << interpreter->tensor(output)->bytes << std::endl;
-
-    auto output_dims = interpreter->tensor(output)->dims;
-    dimenssions  = output_dims->size;
-    for(int dim = 0; dim < dimenssions; dim++ )
-        std::cout << "Dimenssion " << dim << " is "  << output_dims->data[dim] << " size " << std::endl;    
-    
-   
     //Copy Data
     memcpy(interpreter->typed_input_tensor<float>(0), spectro, sizeof(float)* (window_size/2 + 1) * num_frames );
     // Inference
     interpreter->Invoke();
  
-
+    // Get Output
+    int output = interpreter->outputs()[0];
+    TfLiteIntArray *output_dims = interpreter->tensor(output)->dims;
+    auto output_size = output_dims->data[output_dims->size - 1];
+    std::cout << "Output Size " << output_size << std::endl;
     std::vector<std::pair<float, int>> top_results;
     float threshold = 0.01f;
-
-    /*Size of last dimenssion */
-    auto output_size = output_dims->data[output_dims->size - 1];
 
     std::cout << "Output Type " << interpreter->tensor(output)->type << std::endl;
     switch (interpreter->tensor(output)->type) {
